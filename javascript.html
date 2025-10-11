@@ -109,6 +109,27 @@
           document.getElementById('login-status').textContent = response.message;
       }
   }
+ 
+  function updateUIForHoliday() {
+    // Nonaktifkan semua tombol aksi (Masuk, Keluar, Tidak Hadir)
+    document.querySelectorAll('#action-card button').forEach(button => {
+        button.disabled = true;
+        button.classList.add('opacity-50', 'cursor-not-allowed');
+    });
+
+    const statusMasuk = document.getElementById('status-masuk');
+    const statusKeluar = document.getElementById('status-keluar');
+
+    statusMasuk.textContent = 'Hari Libur';
+    statusKeluar.textContent = 'Hari Libur';
+    
+    statusMasuk.className = 'font-bold text-gray-800 bg-gray-200 px-3 py-1.5 rounded-full text-sm';
+    statusKeluar.className = 'font-bold text-gray-800 bg-gray-200 px-3 py-1.5 rounded-full text-sm';
+
+    const messageArea = document.getElementById('message-area');
+    messageArea.style.opacity = '0';
+    messageArea.innerHTML = '';
+  }
 
   function populateUI(userData) {
       document.getElementById('user-name').textContent = userData.name;
@@ -120,7 +141,7 @@
       const dayOfWeek = today.getDay();
 
       if (dayOfWeek == 0 || dayOfWeek == 6){
-        updateStatusUI('Hari Libur');
+        updateUIForHoliday();
         return;
       }
 
