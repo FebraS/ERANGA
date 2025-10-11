@@ -1,0 +1,363 @@
+<script>
+  let currentUser = null;
+  let cameraStream = null;
+  let currentAttendanceStatus = '';
+
+  document.addEventListener("DOMContentLoaded", function() {
+      updateTime();
+      setInterval(updateTime, 1000);
+      const rememberedUser = localStorage.getItem('rememberedUser');
+      if (rememberedUser) {
+          document.getElementById('username').value = rememberedUser;
+          document.getElementById('remember-me').checked = true;
+      }
+      checkLoginSession();
+      document.getElementById('login-button').addEventListener('click', handleLogin);
+      document.getElementById('logout-button').addEventListener('click', handleLogout);
+      document.getElementById('toggle-password-btn').addEventListener('click', togglePasswordVisibility);
+      document.getElementById('password').addEventListener('keypress', e => e.key === 'Enter' && handleLogin());
+      document.getElementById('username').addEventListener('keypress', e => e.key === 'Enter' && handleLogin());
+  });
+
+  function checkLoginSession() {
+      const storedUser = sessionStorage.getItem('loggedInUser');
+      if (storedUser) {
+          currentUser = JSON.parse(storedUser);
+          document.getElementById('login-view').classList.add('hidden');
+          document.getElementById('main-content').classList.remove('hidden');
+          populateUI(currentUser);
+      }
+  }
+
+  function updateTime() {
+      const timeElement = document.getElementById('current-time');
+      const now = new Date();
+      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Makassar' };
+      timeElement.textContent = now.toLocaleDateString('id-ID', options) + ' WITA';
+  }
+
+  function togglePasswordVisibility() {
+      const passwordInput = document.getElementById('password');
+      const eyeIcon = document.getElementById('eye-icon');
+      const eyeSlashIcon = document.getElementById('eye-slash-icon');
+      if (passwordInput.type === 'password') {
+          passwordInput.type = 'text';
+          eyeIcon.classList.add('hidden');
+          eyeSlashIcon.classList.remove('hidden');
+      } else {
+          passwordInput.type = 'password';
+          eyeIcon.classList.remove('hidden');
+          eyeSlashIcon.classList.add('hidden');
+      }
+  }
+
+  function handleLogout() {
+      if (currentUser && currentUser.username) {
+          google.script.run
+              .withSuccessHandler(response => console.log('Server logout response:', response.message))
+              .withFailureHandler(error => console.error('Server logout error:', error))
+              .userLogout(currentUser.username);
+      }
+      currentUser = null;
+      sessionStorage.removeItem('loggedInUser');
+      localStorage.removeItem('rememberedUser');
+      document.getElementById('main-content').classList.add('hidden');
+      document.getElementById('login-view').classList.remove('hidden');
+      document.getElementById('username').value = '';
+      document.getElementById('password').value = '';
+      document.getElementById('login-status').textContent = '';
+      document.getElementById('message-area').innerHTML = '';
+      document.getElementById('message-area').style.opacity = '0';
+  }
+  
+  function handleLogin() {
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const statusDiv = document.getElementById('login-status');
+      const loginButton = document.getElementById('login-button');
+      if (!username || !password) {
+          statusDiv.textContent = 'Username dan password wajib diisi.';
+          return;
+      }
+      statusDiv.textContent = '';
+      loginButton.disabled = true;
+      loginButton.innerHTML = `<div class="spinner" style="width:20px;height:20px;border-width:2px;"></div>`;
+      google.script.run
+          .withSuccessHandler(onLoginSuccess)
+          .withFailureHandler(showGenericError)
+          .userLogin(username, password);
+  }
+  
+  function onLoginSuccess(response) {
+      const loginButton = document.getElementById('login-button');
+      loginButton.disabled = false;
+      loginButton.innerHTML = 'Login';
+      if (response.success) {
+          currentUser = response.userData;
+          sessionStorage.setItem('loggedInUser', JSON.stringify(currentUser));
+          const rememberMe = document.getElementById('remember-me').checked;
+          const username = document.getElementById('username').value;
+          if (rememberMe) {
+              localStorage.setItem('rememberedUser', username);
+          } else {
+              localStorage.removeItem('rememberedUser');
+          }
+          document.getElementById('login-view').classList.add('hidden');
+          document.getElementById('main-content').classList.remove('hidden');
+          populateUI(currentUser);
+      } else {
+          document.getElementById('login-status').textContent = response.message;
+      }
+  }
+
+  function populateUI(userData) {
+      document.getElementById('user-name').textContent = userData.name;
+      document.getElementById('user-nuptk').textContent = userData.nuptk || '-';
+      document.getElementById('user-gender').textContent = userData.gender || '-';
+      document.getElementById('user-jabatan').textContent = userData.jabatan || '-';
+
+      const today = new Date();
+      const dayOfWeek = today.getDay();
+
+      if (dayOfWeek == 0 || dayOfWeek == 6){
+        updateStatusUI('Hari Libur');
+        return;
+      }
+
+      resetStatusUI('masuk');
+      resetStatusUI('keluar');
+      if (userData.lastCheckIn) {
+        if (userData.lastCheckIn.includes(":")) {
+           updateStatusUI('masuk', userData.lastCheckIn, true);
+        } else {
+           updateUIAbsence(userData.lastCheckIn);
+        }
+      }
+      if (userData.lastCheckOut && userData.lastCheckOut.includes(":")) {
+          updateStatusUI('keluar', userData.lastCheckOut, true);
+      }
+  }
+
+  function updateUIAbsence(reason) {
+      document.querySelectorAll('#action-card button').forEach(button => {
+          button.disabled = true;
+          button.classList.add('opacity-50', 'cursor-not-allowed');
+      });
+      const statusMasuk = document.getElementById('status-masuk');
+      const statusKeluar = document.getElementById('status-keluar');
+      statusMasuk.textContent = reason;
+      statusKeluar.textContent = reason;
+      statusMasuk.className = 'font-bold text-red-800 bg-red-100 px-3 py-1.5 rounded-full text-sm';
+      statusKeluar.className = 'font-bold text-red-800 bg-red-100 px-3 py-1.5 rounded-full text-sm';
+  }
+
+  function updateStatusUI(type, time, isDone) {
+      const statusEl = document.getElementById(`status-${type}`);
+      const btnEl = document.getElementById(`btn-${type}`);
+      const colors = type === 'masuk' ? { bg: 'bg-green-100', text: 'text-green-800' } : { bg: 'bg-orange-100', text: 'text-orange-800' };
+      if (isDone) {
+          statusEl.textContent = time + ' WITA';
+          statusEl.classList.replace('bg-gray-100', colors.bg);
+          statusEl.classList.replace('text-gray-600', colors.text);
+          btnEl.disabled = true;
+          btnEl.classList.add('opacity-50', 'cursor-not-allowed');
+          btnEl.querySelector('span').textContent = `Sudah Absen ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+      }
+  }
+
+  function resetStatusUI(type) {
+      const statusEl = document.getElementById(`status-${type}`);
+      const btnEl = document.getElementById(`btn-${type}`);
+      const colors = type === 'masuk' ? { bg: 'bg-green-100', text: 'text-green-800' } : { bg: 'bg-orange-100', text: 'text-orange-800' };
+      statusEl.textContent = 'Belum Absen';
+      statusEl.classList.add('bg-gray-100', 'text-gray-600');
+      statusEl.classList.remove(colors.bg, colors.text);
+      btnEl.disabled = false;
+      btnEl.classList.remove('opacity-50', 'cursor-not-allowed');
+      btnEl.querySelector('span').textContent = `Absen ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+  }
+  
+  function openAbsenceChoiceModal() {
+      document.getElementById('absence-choice-modal').classList.remove('hidden');
+  }
+
+  function closeAbsenceChoiceModal() {
+      document.getElementById('absence-choice-modal').classList.add('hidden');
+  }
+
+  function processAbsenceChoice(status) {
+      closeAbsenceChoiceModal();
+      showMessage('loading', `Mendapatkan lokasi Anda, mohon tunggu...`);
+      disableButtons(true);
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          showMessage('loading', 'Lokasi didapatkan. Mengirim data keterangan...');
+          const { latitude, longitude } = position.coords;
+          // Kirim status dan koordinat ke backend
+          google.script.run
+              .withSuccessHandler(onAbsenceSuccess)
+              .withFailureHandler(showGenericError)
+              .recordAbsence(currentUser.username, status, latitude, longitude);
+        },
+        (error) => {
+          let errorMessage = "Gagal mendapatkan lokasi. Pastikan izin lokasi telah diaktifkan.";
+          showMessage('error', errorMessage);
+          disableButtons(false);
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+  }
+
+  function onAbsenceSuccess(response) {
+      if (response.success) {
+          showMessage('success', response.message);
+          updateUIAbsence(response.absenceReason);
+      } else {
+          showMessage('error', response.message);
+          disableButtons(false);
+      }
+  }
+
+  async function openCameraModal(status) {
+      currentAttendanceStatus = status;
+      const modal = document.getElementById('camera-modal');
+      const video = document.getElementById('camera-preview');
+      const loading = document.getElementById('camera-loading');
+      modal.classList.remove('hidden');
+      loading.classList.remove('hidden');
+      try {
+          if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+              cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+              video.srcObject = cameraStream;
+              video.onloadedmetadata = () => loading.classList.add('hidden');
+          } else {
+              throw new Error("Browser tidak mendukung akses kamera.");
+          }
+      } catch (err) {
+          showMessage('error', `Gagal mengakses kamera: ${err.message}`);
+          closeCameraModal();
+      }
+  }
+
+  function closeCameraModal() {
+      if (cameraStream) {
+          cameraStream.getTracks().forEach(track => track.stop());
+      }
+      document.getElementById('camera-modal').classList.add('hidden');
+      disableButtons(false);
+  }
+
+  document.getElementById('capture-btn').addEventListener('click', function() {
+      const video = document.getElementById('camera-preview');
+      const canvas = document.getElementById('camera-canvas');
+      const context = canvas.getContext('2d');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.translate(canvas.width, 0);
+      context.scale(-1, 1);
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const selfieData = canvas.toDataURL('image/jpeg', 0.9);
+      closeCameraModal();
+      proceedWithAttendance(currentAttendanceStatus, selfieData);
+  });
+
+  function handleAttendance(status) {
+      openCameraModal(status);
+  }
+  
+  function proceedWithAttendance(status, selfieData) {
+      showMessage('loading', `Mendapatkan lokasi Anda, mohon tunggu...`);
+      disableButtons(true);
+      navigator.geolocation.getCurrentPosition(
+          (position) => {
+              showMessage('loading', 'Lokasi didapatkan. Mengirim data absensi...');
+              const { latitude, longitude } = position.coords;
+              google.script.run
+                  .withSuccessHandler(showResult)
+                  .withFailureHandler(showGenericError)
+                  .recordAttendance(currentUser.username, status, latitude, longitude, selfieData);
+          },
+          (error) => {
+              let errorMessage = "Gagal mendapatkan lokasi. Pastikan izin lokasi telah diaktifkan.";
+              showMessage('error', errorMessage);
+              disableButtons(false);
+          },
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+  }
+
+  function showResult(response) {
+    if (response.success) {
+      showMessage('success', response.message);
+      google.script.run
+        .withSuccessHandler(onRefreshSuccess)
+        .withFailureHandler(showGenericError)
+        .getUserData(currentUser.username);
+    } else {
+      showMessage('error', response.message);
+      disableButtons(false);
+    }
+  }
+  
+  function onRefreshSuccess(response) {
+      disableButtons(false);
+      if (response.success) {
+          currentUser = response.userData;
+          sessionStorage.setItem('loggedInUser', JSON.stringify(currentUser));
+          populateUI(currentUser);
+      } else {
+          handleLogout();
+      }
+  }
+  
+  function showGenericError(error) {
+      const msg = `Terjadi kesalahan pada sistem: ${error.message}`;
+      showMessage('error', msg);
+      document.getElementById('login-status').textContent = msg;
+      const loginButton = document.getElementById('login-button');
+      loginButton.disabled = false;
+      loginButton.innerHTML = 'Login';
+      disableButtons(false);
+  }
+  
+  function showMessage(type, text) {
+      const messageArea = document.getElementById('message-area');
+      let bgColor, textColor, borderColor, icon;
+      switch(type) {
+          case 'success':
+              bgColor = 'bg-green-100'; textColor = 'text-green-800'; borderColor = 'border-green-500';
+              icon = `<svg class="fill-current h-5 w-5 mr-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M0 11l2-2 5 5L17 3l3 3-10 10L0 11z"/></svg>`;
+              break;
+          case 'error':
+              bgColor = 'bg-red-100'; textColor = 'text-red-800'; borderColor = 'border-red-500';
+              icon = `<svg class="fill-current h-5 w-5 mr-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"/></svg>`;
+              break;
+          case 'loading':
+              bgColor = 'bg-blue-100'; textColor = 'text-blue-800'; borderColor = 'border-blue-500';
+              icon = `<div class="spinner-sm border-blue-500 mr-3"></div>`;
+              if (!document.querySelector('style#spinner-style')) {
+                  document.head.insertAdjacentHTML('beforeend', '<style id="spinner-style">.spinner-sm{border:2px solid rgba(0,0,0,.1);width:20px;height:20px;border-radius:50%;border-left-color:currentColor;animation:spin .5s ease infinite;}</style>');
+              }
+              break;
+      }
+      messageArea.innerHTML = `<div class="${bgColor} border-l-4 ${borderColor} ${textColor} p-4 rounded-lg shadow" role="alert"><div class="flex items-center">${icon}<p>${text}</p></div></div>`;
+      messageArea.style.opacity = '1';
+      if (type !== 'loading') {
+          setTimeout(() => { messageArea.style.opacity = '0'; }, 6000);
+      }
+  }
+
+  function disableButtons(isDisabled) {
+    document.querySelectorAll('#action-card button').forEach(button => {
+        button.disabled = isDisabled;
+        if (isDisabled) {
+            button.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            if(!button.querySelector('span').textContent.includes('Sudah Absen')) {
+               button.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+    });
+  }
+</script>
