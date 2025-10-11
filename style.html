@@ -1,0 +1,13 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  body { 
+      font-family: 'Inter', sans-serif; 
+      /* Latar belakang solid, bersih, dan terang */
+      background-color: #f8fafc; /* Tailwind's slate-50 */
+  }
+  .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 36px; height: 36px; border-radius: 50%; border-left-color: #09f; animation: spin 1s ease infinite; }
+  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  .message-card { transition: opacity 0.5s ease-in-out; }
+  #camera-modal { z-index: 50; }
+  #camera-preview { transform: scaleX(-1); } /* Efek cermin */
+</style>
