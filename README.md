@@ -1,4 +1,4 @@
-# ERANGA: Aplikasi Absensi Online Sederhana & Kuat
+# ERANGA: Elektronik Rekam Absensi Nyaman Gampang Akurat
 ERANGA (Electronic Attendance) adalah sebuah aplikasi absensi berbasis web yang dibangun sepenuhnya di atas platform Google Apps Script. Aplikasi ini dirancang untuk memudahkan pencatatan kehadiran karyawan atau anggota secara online dengan fitur keamanan modern.
 
 Sistem ini sangat ideal untuk organisasi yang sudah menggunakan ekosistem Google Workspace karena tidak memerlukan server atau database tambahan. Semua data absensi akan langsung tersimpan dengan aman di Google Sheets dan foto selfie di Google Drive.
