@@ -198,7 +198,7 @@ function recordAttendance(username, status, userLat, userLng, selfieData) {
     return { success: false, message: `Terjadi error di server: ${e.message}` };
   }
 }
--
+
 /**
  * Mencatat keterangan tidak hadir (sakit/izin) dari pengguna beserta lokasinya.
  */
