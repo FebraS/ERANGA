@@ -27,7 +27,7 @@ function doGet(e) {
     .setTitle('ERANGA - Beranda')
     .setFaviconUrl(ICON_URL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL); // PERINGATAN KEAMANAN: Rentan Clickjacking. Ganti ke SAMEORIGIN jika memungkinkan.
 }
 
 function include(filename) {
@@ -37,6 +37,15 @@ function include(filename) {
 // ===============================================================
 // OTENTIKASI DAN KEAMANAN
 // ===============================================================
+
+function getValidUsernameFromToken(token) {
+  if (!token) {
+    return null;
+  }
+  const cache = CacheService.getScriptCache();
+  const username = cache.get(token);
+  return username; // Akan mengembalikan null jika token tidak ditemukan atau kedaluwarsa
+}
 
 function userLogin(username, password) {
   const scriptProperties = PropertiesService.getScriptProperties();
@@ -80,10 +89,16 @@ function userLogin(username, password) {
         Logger.log(`Gagal mencatat log sesi untuk ${username}: ${e.message}`);
       }
 
+      const token = Utilities.getUuid();
+
+      const cache = CacheService.getScriptCache();
+      cache.put(token, username.toLowerCase(), 28800); 
+
       const lastAttendance = getLastAttendance(spreadsheet, username);
       return {
         success: true,
         message: "Login berhasil!",
+        token: token,
         userData: {
           username: username,
           name: userData.name,
@@ -114,8 +129,17 @@ function userLogin(username, password) {
   };
 }
 
-function userLogout(username) {
+function userLogout(token) {
   try {
+    const cache = CacheService.getScriptCache();
+    const username = cache.get(token);
+
+    if (!username) {
+      return { success: true, message: "Sesi sudah berakhir." };
+    }
+    
+    cache.remove(token);
+
     const spreadsheet = SpreadsheetApp.openById(CONFIG.SHEET_ID);
     const logSesiSheet = spreadsheet.getSheetByName(CONFIG.LOGIN_LOG_SHEET_NAME);
     const userData = getAuthorizedUserData(spreadsheet, username);
@@ -142,8 +166,13 @@ function computeSha256Hash(input) {
 // LOGIKA ABSENSI
 // ===============================================================
 
-function recordAttendance(username, status, userLat, userLng, selfieData) {
+function recordAttendance(token, status, userLat, userLng, selfieData) {
   try {
+    const username = getValidUsernameFromToken(token);
+    if (!username) {
+      return { success: false, message: "❌ Sesi Anda tidak valid atau telah berakhir. Silakan login kembali." };
+    }
+
     const spreadsheet = SpreadsheetApp.openById(CONFIG.SHEET_ID);
     const userData = getAuthorizedUserData(spreadsheet, username);
 
@@ -199,11 +228,13 @@ function recordAttendance(username, status, userLat, userLng, selfieData) {
   }
 }
 
-/**
- * Mencatat keterangan tidak hadir (sakit/izin) dari pengguna beserta lokasinya.
- */
-function recordAbsence(username, reason, userLat, userLng) {
+function recordAbsence(token, reason, userLat, userLng) {
   try {
+    const username = getValidUsernameFromToken(token);
+    if (!username) {
+      return { success: false, message: "❌ Sesi Anda tidak valid atau telah berakhir. Silakan login kembali." };
+    }
+
     const spreadsheet = SpreadsheetApp.openById(CONFIG.SHEET_ID);
     const userData = getAuthorizedUserData(spreadsheet, username);
 
@@ -226,7 +257,6 @@ function recordAbsence(username, reason, userLat, userLng) {
 
     const logSheet = spreadsheet.getSheetByName(CONFIG.LOG_SHEET_NAME);
     
-    // Simpan data koordinat yang dikirim dari klien
     logSheet.appendRow([
       new Date(),
       username,
@@ -238,7 +268,7 @@ function recordAbsence(username, reason, userLat, userLng) {
       userLat,
       userLng,
       "Tidak Hadir",
-      "-" // Dokumentasi
+      "-"
     ]);
 
     return {
@@ -260,7 +290,9 @@ function recordAbsence(username, reason, userLat, userLng) {
 function saveSelfieToDrive(base64Data, username, status) {
   const folder = DriveApp.getFolderById(CONFIG.SELFIE_FOLDER_ID);
   const [meta, data] = base64Data.split(',');
-  const blob = Utilities.newBlob(Utilities.base64Decode(data), meta.match(/:(.*?);/)[1], `selfie_${username}.jpg`);
+  
+  const blob = Utilities.newBlob(Utilities.base64Decode(data), 'image/jpeg', `selfie_${username}.jpg`);
+
   const fileName = `${Utilities.formatDate(new Date(), "Asia/Makassar", "yyyy-MM-dd_HH-mm-ss")}_${username}_${status}.jpg`;
   return folder.createFile(blob).setName(fileName).getUrl();
 }
@@ -337,8 +369,12 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 // FUNGSI UNTUK CLIENT-SIDE (TAMBAHAN)
 // ===============================================================
 
-function getUserData(username) {
+function getUserData(token) {
   try {
+    const username = getValidUsernameFromToken(token);
+    if (!username) {
+      return { success: false, message: "❌ Sesi Anda tidak valid atau telah berakhir. Silakan login kembali." };
+    }
     const spreadsheet = SpreadsheetApp.openById(CONFIG.SHEET_ID);
     const userData = getAuthorizedUserData(spreadsheet, username);
 
