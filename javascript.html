@@ -21,7 +21,9 @@
 
   function checkLoginSession() {
       const storedUser = sessionStorage.getItem('loggedInUser');
-      if (storedUser) {
+      const storedToken = sessionStorage.getItem('sessionToken');
+      
+      if (storedUser && storedToken) {
           currentUser = JSON.parse(storedUser);
           document.getElementById('login-view').classList.add('hidden');
           document.getElementById('main-content').classList.remove('hidden');
@@ -52,18 +54,23 @@
   }
 
   function handleLogout() {
-      if (currentUser && currentUser.username) {
+      const token = sessionStorage.getItem('sessionToken');
+      if (token) {
           google.script.run
               .withSuccessHandler(response => console.log('Server logout response:', response.message))
               .withFailureHandler(error => console.error('Server logout error:', error))
-              .userLogout(currentUser.username);
+              .userLogout(token);
       }
+      
+      // Selalu bersihkan sisi klien
       currentUser = null;
       sessionStorage.removeItem('loggedInUser');
-      localStorage.removeItem('rememberedUser');
+      sessionStorage.removeItem('sessionToken');
+      
+      
       document.getElementById('main-content').classList.add('hidden');
       document.getElementById('login-view').classList.remove('hidden');
-      document.getElementById('username').value = '';
+      document.getElementById('username').value = localStorage.getItem('rememberedUser') || '';
       document.getElementById('password').value = '';
       document.getElementById('login-status').textContent = '';
       document.getElementById('message-area').innerHTML = '';
@@ -92,9 +99,13 @@
       const loginButton = document.getElementById('login-button');
       loginButton.disabled = false;
       loginButton.innerHTML = 'Login';
+      
       if (response.success) {
           currentUser = response.userData;
+          
+          sessionStorage.setItem('sessionToken', response.token); 
           sessionStorage.setItem('loggedInUser', JSON.stringify(currentUser));
+          
           const rememberMe = document.getElementById('remember-me').checked;
           const username = document.getElementById('username').value;
           if (rememberMe) {
@@ -102,6 +113,7 @@
           } else {
               localStorage.removeItem('rememberedUser');
           }
+          
           document.getElementById('login-view').classList.add('hidden');
           document.getElementById('main-content').classList.remove('hidden');
           populateUI(currentUser);
@@ -109,7 +121,7 @@
           document.getElementById('login-status').textContent = response.message;
       }
   }
- 
+
   function updateUIForHoliday() {
     // Nonaktifkan semua tombol aksi (Masuk, Keluar, Tidak Hadir)
     document.querySelectorAll('#action-card button').forEach(button => {
@@ -149,9 +161,9 @@
       resetStatusUI('keluar');
       if (userData.lastCheckIn) {
         if (userData.lastCheckIn.includes(":")) {
-           updateStatusUI('masuk', userData.lastCheckIn, true);
+            updateStatusUI('masuk', userData.lastCheckIn, true);
         } else {
-           updateUIAbsence(userData.lastCheckIn);
+            updateUIAbsence(userData.lastCheckIn);
         }
       }
       if (userData.lastCheckOut && userData.lastCheckOut.includes(":")) {
@@ -211,15 +223,22 @@
       showMessage('loading', `Mendapatkan lokasi Anda, mohon tunggu...`);
       disableButtons(true);
 
+      const token = sessionStorage.getItem('sessionToken');
+      if (!token) {
+          showMessage('error', 'Sesi Anda berakhir. Silakan login kembali.');
+          handleLogout();
+          return;
+      }
+
       navigator.geolocation.getCurrentPosition(
         (position) => {
           showMessage('loading', 'Lokasi didapatkan. Mengirim data keterangan...');
           const { latitude, longitude } = position.coords;
-          // Kirim status dan koordinat ke backend
+          
           google.script.run
               .withSuccessHandler(onAbsenceSuccess)
               .withFailureHandler(showGenericError)
-              .recordAbsence(currentUser.username, status, latitude, longitude);
+              .recordAbsence(token, status, latitude, longitude);
         },
         (error) => {
           let errorMessage = "Gagal mendapatkan lokasi. Pastikan izin lokasi telah diaktifkan.";
@@ -290,6 +309,14 @@
   function proceedWithAttendance(status, selfieData) {
       showMessage('loading', `Mendapatkan lokasi Anda, mohon tunggu...`);
       disableButtons(true);
+      
+      const token = sessionStorage.getItem('sessionToken');
+      if (!token) {
+          showMessage('error', 'Sesi Anda berakhir. Silakan login kembali.');
+          handleLogout();
+          return;
+      }
+
       navigator.geolocation.getCurrentPosition(
           (position) => {
               showMessage('loading', 'Lokasi didapatkan. Mengirim data absensi...');
@@ -297,7 +324,7 @@
               google.script.run
                   .withSuccessHandler(showResult)
                   .withFailureHandler(showGenericError)
-                  .recordAttendance(currentUser.username, status, latitude, longitude, selfieData);
+                  .recordAttendance(token, status, latitude, longitude, selfieData);
           },
           (error) => {
               let errorMessage = "Gagal mendapatkan lokasi. Pastikan izin lokasi telah diaktifkan.";
@@ -311,10 +338,18 @@
   function showResult(response) {
     if (response.success) {
       showMessage('success', response.message);
+      
+      const token = sessionStorage.getItem('sessionToken');
+      if (!token) {
+          showMessage('error', 'Sesi Anda berakhir. Silakan login kembali.');
+          handleLogout();
+          return;
+      }
+
       google.script.run
         .withSuccessHandler(onRefreshSuccess)
         .withFailureHandler(showGenericError)
-        .getUserData(currentUser.username);
+        .getUserData(token);
     } else {
       showMessage('error', response.message);
       disableButtons(false);
@@ -376,7 +411,7 @@
             button.classList.add('opacity-50', 'cursor-not-allowed');
         } else {
             if(!button.querySelector('span').textContent.includes('Sudah Absen')) {
-               button.classList.remove('opacity-50', 'cursor-not-allowed');
+                button.classList.remove('opacity-50', 'cursor-not-allowed');
             }
         }
     });
